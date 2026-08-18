@@ -176,12 +176,35 @@ end
         @test long(10000) ≈ endval atol = 1e-7
     end
 
-    @testset "percent_start bounds" begin
-        # smallest non-zero warm-up (a single step) still ramps from `startval`
-        s = OneCycle(50, 1f-1; startval = 1f-4, percent_start = 1e-6)
-        @test s(1) == 1f-4
-        @test s(2) ≈ 1f-1 atol = eps(1f-1)
+    @testset "percent_start = eps" begin
+        nsteps = 50
+        maxval = 1f-1
+        startval = 1f-4
+        endval = 1f-2
 
+        # the smallest representable non-zero `percent_start` still rounds up to a
+        # one step warm-up, so it must *not* collapse to the `percent_start = 0` case
+        for pct in (eps(), eps(Float32), nextfloat(0.0))
+            s = OneCycle(nsteps, maxval; startval, endval, percent_start = pct)
+
+            @test ceil(Int, nsteps * pct) == 1
+            @test all(s(t) == onecycle(t, nsteps, startval, maxval, endval, pct)
+                      for t in 1:nsteps)
+
+            # one warm-up step from `startval`, peaking on the second step
+            @test s(1) == startval
+            @test s(2) ≈ maxval atol = eps(maxval)
+            @test argmax(s.(1:nsteps)) == 2
+            @test all(>(0), -diff(s.(2:nsteps)))
+
+            # distinct from the single-phase schedule, which starts at the peak
+            @test s(1) != OneCycle(nsteps, maxval; startval, endval, percent_start = 0)(1)
+
+            @test_throws BoundsError s(nsteps + 1)
+        end
+    end
+
+    @testset "percent_start bounds" begin
         @test_throws AssertionError OneCycle(50, 1f-1; percent_start = 1)
         @test_throws AssertionError OneCycle(50, 1f-1; percent_start = 1.5)
         @test_throws AssertionError OneCycle(50, 1f-1; percent_start = -0.1)
